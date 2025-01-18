@@ -117,7 +117,7 @@ def test_changer_can_hit_targets(neo4j_info):
 
 def test_performance_test(neo4j_info):
     cm = change_maker.changer()
-    cdc = change_capturer.cdc_threaded()
+    cdc = change_capturer.cdc_threaded(neo4j_info)
     target_change_rate = 3000
     test_time = 10 #seconds
     payload_bytes = 1

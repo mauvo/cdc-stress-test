@@ -17,74 +17,51 @@ CALL db.cdc.current() YIELD id RETURN id
 
 class cdc_threaded:
 
-    def __init__(self):
-        self.neo4j_info = None
-        self.driver = None
-        self.session = None
-        self.previous_id = None
-        self.running = False
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
-    def open(self, neo4j_info):
-        self.close()
+    def __init__(self, neo4j_info):
         self.neo4j_info = neo4j_info
         self.driver = GraphDatabase.driver(neo4j_info.uri, auth=neo4j_info.auth)
-        self.session = self.driver.session(database=neo4j_info.database)
+        self.reset()
+    
+    def reset(self):
+        self.thread = None
+        self.running = False
         self.previous_id = None
         self.first_event_size = None
+        self.total_runtime = 0
 
-    def close(self):
-        if self.running: self.wait_stop()
-        if self.session is not None:
-            self.session.close()
-            self.session = None
-        if self.driver is not None:
-            self.driver.close()
-            self.driver = None
-
-    def start(self):
-        if self.running: return
+    def start(self, capture_duration):
+        if self.running: 
+            raise Exception("CDC Threaded already running")
 
         self.running = True
         self.start_time = time.time()
         self.total_captured = 0
-
-        self.thread = Thread(target=self.cdc_thread, args=(self.driver, lambda : self.running))
+        self.thread = Thread(target=self.cdc_thread, args=(self.driver, capture_duration))
         self.thread.start()
 
-    def send_stop(self):
-        self.running = False
-        self.stop_thread = Thread(target=self.time_stop_thread, args=())
-        self.stop_thread.start()
+    def wait_for_results(self):
+        if self.thread:
+            self.thread.join()
+        total_captured = self.total_captured
+        total_runtime = self.total_runtime
+        first_event_size = self.first_event_size
+        self.reset()
+        return total_captured, total_runtime, first_event_size
 
-    def time_stop_thread(self):
-        self.thread.join()
-        self.stop_time = time.time()
-        self.total_runtime = self.stop_time - self.start_time
-
-    def wait_stop(self):
-        self.send_stop()
-        self.stop_thread.join()
-        return self.total_captured, self.total_runtime, self.first_event_size
-
-    def cdc_thread(self, driver, running):
+    def cdc_thread(self, driver, capture_duration):
+        start_time = time.time()
         with driver.session(database="neo4j") as session:
-            while running():
+            while time.time() - start_time <= capture_duration:
                 self.total_captured += self.retrieve_changes(session)
-                time.sleep(0.001)
-
-    def reset_id_to_current(self):
-        result = self.session.run(get_current_id_cypher)
+            self.total_runtime = time.time() - start_time
+        
+    def reset_id_to_current(self, session):
+        result = session.run(get_current_id_cypher)
         return result.single()[0]
 
     def retrieve_changes(self, session):
         if self.previous_id == None:
-            self.previous_id = self.reset_id_to_current()
+            self.previous_id = self.reset_id_to_current(session)
         result = session.run(retrieve_changes_cypher, previous_id=self.previous_id)
         changes = []
         count = 0
