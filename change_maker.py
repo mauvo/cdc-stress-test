@@ -38,103 +38,84 @@ def delete_nodes(session, label_id):
 
 class changer:
 
-    def __init__(self):
+    def __init__(self, neo4j_info):
+        self.neo4j_info = neo4j_info
         self.max_threads = multiprocessing.cpu_count() * 2
         if self.max_threads > 1:
             self.max_threads -= 1
         self.max_batch_size = 3_000
+        self.lock = threading.Lock()
+        self.reset()
+    
+    def reset(self):
         self.running = False
         self.session = None
         self.driver = None
+        self.driver = GraphDatabase.driver(self.neo4j_info.uri, auth=self.neo4j_info.auth)
+        self.running = False
+        self.threads = None
+        self.total_runtime = 0
+        self.total_changes = 0
+    
+    def wait_for_results(self):
+        if self.threads:
+            for thread in self.threads:
+                thread.join()
+        total_changes = self.total_changes
+        avg_runtime = self.total_runtime / self.max_threads
+        self.reset()
+        return total_changes, avg_runtime
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.close()
-
-    def open(self, neo4j_info, target_change_rate=1, payload_bytes=1):
-        self.close()
-        self.lock = threading.Lock()
-        self.neo4j_info = neo4j_info
-        self.driver = GraphDatabase.driver(neo4j_info.uri, auth=neo4j_info.auth)
-        self.session = self.driver.session(database=neo4j_info.database)
-        self.target_change_rate = target_change_rate
-        self.target_change_rate_per_thread = -1
-        if self.target_change_rate > 0:
-            self.target_change_rate_per_thread = target_change_rate / self.max_threads
-        self.payload_bytes = payload_bytes
-
-    def close(self):
-        if self.running: self.wait_stop()
-        if self.session is not None:
-            self.session.close()
-            self.session = None
-        if self.driver is not None:
-            self.driver.close()
-            self.driver = None
-
-    def start(self):
-        if self.running: return
+    def start(self, duration, target_change_rate, payload_bytes=1):
+        if self.running: 
+            raise Exception("Change maker already running")
 
         self.running = True
-        self.start_time = time.time()
-        self.total_changes = 0
-
+        target_change_rate_per_thread = target_change_rate / self.max_threads
         self.threads = []
         for thread_id in range(self.max_threads):
-            thread = Thread(target=self.change_maker_thread, args=(self.driver, thread_id, self.target_change_rate_per_thread, lambda : self.running))
+            thread = Thread(target=self.change_maker_thread, args=(self.driver, thread_id, duration, target_change_rate_per_thread, payload_bytes))
             self.threads.append(thread)
         for thread in self.threads:
             thread.start()
 
-    def send_stop(self):
-        self.stop_thread = Thread(target=self.time_stop_thread, args=())
-        self.stop_thread.start()
-
-    def time_stop_thread(self):
-        self.running = False
-        for thread in self.threads:
-            thread.join()
-        self.stop_time = time.time()
-        self.total_runtime = self.stop_time - self.start_time
-
-    def wait_stop(self):
-        self.send_stop()
-        self.stop_thread.join()
-        return self.total_changes, self.total_runtime
-
-    def change_maker_thread(self, driver, thread_id, target_change_rate_per_thread, running):
-        my_start_time = perf_counter()
+    def change_maker_thread(self, driver, thread_id, duration, target_change_rate_per_thread, payload_bytes):
+        my_start_time = time.time()
         my_total_changes = 0
         my_batch_size = self.max_batch_size
         if target_change_rate_per_thread > 0:
             my_batch_size = math.ceil(min(target_change_rate_per_thread/2, my_batch_size))
 
         with driver.session(database="neo4j") as session:
-            while running():
+            while True:
 
-                create_nodes(session, my_batch_size, thread_id, payload_bytes=self.payload_bytes)
+                if time.time() - my_start_time > duration:
+                    break
+
+                create_nodes(session, my_batch_size, thread_id, payload_bytes=payload_bytes)
                 my_total_changes += my_batch_size
                 with self.lock:
                     self.total_changes += my_batch_size
                 self.wait_if_necessary(my_start_time, my_total_changes, target_change_rate_per_thread, thread_id)
 
-                if not running(): break
-                time.sleep(0.001)
+                if time.time() - my_start_time > duration:
+                    break
 
                 delete_nodes(session, thread_id)
                 my_total_changes += my_batch_size
                 with self.lock:
                     self.total_changes += my_batch_size
                 self.wait_if_necessary(my_start_time, my_total_changes, target_change_rate_per_thread, thread_id)
-                time.sleep(0.001)
+
+        my_duration = time.time() - my_start_time
+        with self.lock:
+            self.total_runtime += my_duration
 
     def wait_if_necessary(self, my_start_time, my_total_changes, target_change_rate_per_thread, thread_id):
         if target_change_rate_per_thread <= 0:
             return
 
-        elapsed_time = perf_counter() - my_start_time
+        elapsed_time = time.time() - my_start_time
         expected_changes = elapsed_time * target_change_rate_per_thread
 
         excess_changes = my_total_changes - expected_changes

@@ -13,15 +13,11 @@ NEO4j_DATABASE = "neo4j"
 def performance_test(cdc, cm, neo4j_info, target_change_rate, test_time, payload_bytes=1):
   neo4j_info.delete_all_nodes()
   time.sleep(1)
-  cm.open(neo4j_info, target_change_rate=target_change_rate, payload_bytes=payload_bytes)
   cdc.start(test_time)
-  cm.start()
+  cm.start(test_time, target_change_rate=target_change_rate, payload_bytes=payload_bytes)
   time.sleep(test_time)
-  cm.send_stop()
-  time.sleep(0.001)
   total_captured, total_cdc_time, first_event_size = cdc.wait_for_results()
-  total_changes, total_cm_time = cm.wait_stop()
-  cm.close()
+  total_changes, total_cm_time = cm.wait_for_results()
   return total_changes, total_cm_time, total_captured, total_cdc_time, first_event_size
 
 def profile(cdc, cm, neo4j_info, initial_rate, rate_increment, final_rate):
@@ -32,11 +28,11 @@ def profile(cdc, cm, neo4j_info, initial_rate, rate_increment, final_rate):
         print("{:,.0f}\t{:,.0f}\t{:,.0f}\t{:,.0f}\t{:,.1f}\t{:,.0f}\t{:,.1f}".format(first_event_size, rate, test_time, total_changes, total_cm_time, total_captured, total_cdc_time))
         rate += rate_increment
    
-
 if __name__ == '__main__':
     neo4j_info = Neo4jInfo(NEO4J_URI_5, NEO4J_AUTH_5, 5, NEO4j_DATABASE)
-    cm = changer()
+    cm = changer(neo4j_info)
     cdc = change_capturer.cdc_threaded(neo4j_info)
-    #tests.run_all_tests(neo4j_info)
+    #tests.test_changer_can_hit_targets(neo4j_info)
+    tests.run_all_tests(neo4j_info)
     #tests.test_performance_test(neo4j_info)
-    profile(cdc, cm, neo4j_info, 250, 250, 5000)
+    #profile(cdc, cm, neo4j_info, 1_000, 1_000, 10_000)
