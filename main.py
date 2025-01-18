@@ -33,6 +33,6 @@ if __name__ == '__main__':
     cm = changer(neo4j_info)
     cdc = change_capturer.cdc_threaded(neo4j_info)
     #tests.test_changer_can_hit_targets(neo4j_info)
-    tests.run_all_tests(neo4j_info)
+    #tests.run_all_tests(neo4j_info)
     #tests.test_performance_test(neo4j_info)
-    #profile(cdc, cm, neo4j_info, 1_000, 1_000, 10_000)
+    profile(cdc, cm, neo4j_info, 1_000, 1_000, 10_000)
