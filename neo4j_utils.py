@@ -2,7 +2,8 @@ from neo4j import GraphDatabase
 
 class Neo4jInfo():
   
-    def __init__(self, uri, auth, version, database):
+    def __init__(self, name, uri, auth, version, database):
+        self.name = name
         self.uri = uri
         self.auth = auth
         self.version = version
