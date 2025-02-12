@@ -5,10 +5,10 @@ import change_capturer
 from change_maker import changer
 
 NEO4J_USERNAME = "neo4j"
-NEO4J_URI_5 = "neo4j+s://e99a07ba.databases.neo4j.io"
-NEO4J_PASSWORD_5 = "nJZkOnHsuix3yLicZJCRZ0GHEhZEXmd-Hr4usLUhZuI"
-NEO4J_AUTH_5 = (NEO4J_USERNAME, NEO4J_PASSWORD_5)
+NEO4J_URI_5 = "neo4j+s://8a118dbf.databases.neo4j.io"
+NEO4J_PASSWORD_5 = "xEtoaswVasVPWugVdLE6reWz89sAd1d1B5eogQQGV1o"
 NEO4j_DATABASE = "neo4j"
+NEO4J_AUTH_5 = (NEO4J_USERNAME, NEO4J_PASSWORD_5)
 
 def performance_test(cdc, cm, neo4j_info, target_change_rate, test_time, payload_bytes=1):
   neo4j_info.delete_all_nodes()
@@ -29,7 +29,7 @@ def profile(cdc, cm, neo4j_info, initial_rate, rate_increment, final_rate):
         rate += rate_increment
    
 if __name__ == '__main__':
-    neo4j_info = Neo4jInfo(NEO4J_URI_5, NEO4J_AUTH_5, 5, NEO4j_DATABASE)
+    neo4j_info = Neo4jInfo("name", NEO4J_URI_5, NEO4J_AUTH_5, 5, NEO4j_DATABASE)
     cm = changer(neo4j_info)
     cdc = change_capturer.cdc_threaded(neo4j_info)
     #tests.test_changer_can_hit_targets(neo4j_info)
